@@ -1,0 +1,143 @@
+---
+title: "BAX 452 Homework 1"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+---
+
+### Loading the libraries
+
+```{r, message=FALSE}
+library(olsrr)
+```
+
+### Reading the data
+
+```{r}
+cars = read.csv("cars.csv")
+names(cars)
+```
+
+###Factor the data
+```{r}
+cars$fuel_type <- factor(cars$fuel_type, levels = c("gas", "diesel"))
+cars$aspiration <- factor(cars$aspiration, levels = c("std", "turbo"))
+cars$num_of_doors <- factor(cars$num_of_doors, levels = c("two", "four"))
+cars$engine_type <- na.omit(factor(cars$engine_type))
+cars$body_style <- factor(cars$body_style)
+cars$drive_wheels <- factor(cars$drive_wheels)
+cars$make <- factor(cars$make)
+
+```
+#Plotting the dependent variable Y(Price) against the different continuous/categorical variables(X)
+## Checking how each of the variables depend on price of the car through the plot.
+```{r}
+plot(cars$price ~ cars$fuel_type)
+plot(cars$price ~ cars$aspiration)
+plot(cars$price ~ cars$num_of_doors)
+plot(cars$price ~ cars$engine_type)
+boxplot(cars$price ~ cars$num_of_cylinders)
+plot(cars$price ~ cars$body_style)
+plot(cars$price ~ cars$drive_wheels)
+boxplot(cars$price ~ cars$engine_location)
+plot(cars$price ~ cars$wheel_base)
+plot(cars$price ~ cars$length)
+plot(cars$price ~ cars$width)
+plot(cars$price ~ cars$height)
+plot(cars$price ~ cars$curb_weight)
+boxplot(cars$price ~ cars$bore)
+plot(cars$price ~ cars$engine_size)
+boxplot(cars$price ~ cars$fuel_system)
+plot(cars$price ~ cars$stroke)
+plot(cars$price ~ cars$compression_ratio)
+plot(cars$price ~ cars$horsepower)
+plot(cars$price ~ cars$peak_rpm)
+plot(cars$price ~ cars$city_mpg)
+plot(cars$price ~ cars$highway_mpg)
+
+```
+From the plot of price vs make it can be seen that premium cars are priced higher than the other cars.
+From the plot of price vs fuel type it can be seen that diesel cars are priced higher than the other cars.
+From the plot of price vs aspiration it can be seen that turbo cars are priced higher than the other cars.
+From the plot of price vs engine type it can be seen that ohcv engine type cars are priced higher than the other cars and have a higher range.
+From the plot of price vs fuel type it can be seen that diesel cars are priced higher than the other cars.
+From the plot of price vs number of cylinders it can be seen that large number of cylinder cars are priced higher than the other cars.
+From the plot of price vs drive wheels of cars it can be seen that drive wheel of rwd are priced higher than the other cars.
+From the plot of price vs engine type it can be seen that cars with front engine type are priced higher than the other cars.
+From the plot of price vs wheel base it can be seen that lower the wheel base the lower is the price of the car and vice-versa.
+From the plot of price vs curb weight it can be seen that lower the curb weight the lower is the price of the car and vice-versa.
+From the plot of price vs wheel base it can be seen that lower the wheel base the lower is the price of the car and vice-versa.
+From the plot of price vs horsepower it can be seen that the price of the car increases as the horsepower of the car increases.
+From the plot of price vs city mpg it can be seen that lower the city mpg the higher is the price of the car.
+
+
+## Building the intial model
+
+```{r}
+initial_model <- lm(cars$price ~ cars$horsepower + cars$fuel_type + cars$aspiration + cars$num_of_doors + 
+                      cars$body_style + cars$drive_wheels + cars$make + cars$city_mpg + cars$length)
+summary(initial_model)
+```
+**Inference on the initial model**
+
+From the initial model it can be seen that only makeaudi and fuel_typediesel are significant which shows that model does not use combination of the right set of variables that are to be used to come up with a good model statistics. Hence an improved model is required.
+
+ 
+**Improving the model** 
+## Running the full model considering all the variables
+
+```{r}
+full_model <- lm(price ~ ., data=cars)
+summary_1 <- summary(full_model)
+summary_1
+```
+
+## Running the stepwise regression to consider the best model with right set of variables
+
+```{r}
+library(olsrr)
+ols_step_both_p(full_model, prem = 0.05, pent = 0.05, details = TRUE)
+```
+#### Constructing a model with the identified set of vaiables.
+
+
+```{r}
+updated_model <- lm(cars$price ~ cars$stroke+cars$engine_type+cars$num_of_cylinders+cars$aspiration+cars$peak_rpm+cars$width+cars$engine_location+cars$curb_weight+cars$make+cars$engine_size)
+summary_updated_model <- summary(updated_model)
+```
+
+#### It can be seen from the updated model that is constructed using the stepwise regression that the model consists of a better combination of variables than the intial models and has 4 significant variables. In addtion the Adj R- squared for the updated model is higher(94.81%) is higher than the initial model.(Adj R- squared: 92.29% )
+#### False Discoveries can be an issue because the model that is built using those false discoveries will not be the correct model that should be considered
+## it will include the wrong set of independent variables which can lead wrong estimations and inferences and disrupt the entire insights that would be based on the model that is built on the falsely discovered variables.
+
+```{r}
+fdr <- function(pvals, q, plotit=FALSE){
+  pvals <- pvals[!is.na(pvals)]
+  N <- length(pvals)
+  
+  k <- rank(pvals, ties.method="min")
+  alpha <- max(pvals[ pvals <= (q*k/N) ])
+  
+  if(plotit){
+    sig <- factor(pvals <= alpha)
+    o <- order(pvals)
+    plot(pvals[o], log="xy", col=c("grey60","red")[sig[o]], pch=20, 
+         ylab="p-values", xlab="tests ordered by p-value", main = paste('FDR =',q))
+    lines(1:N, q*(1:N) / N)
+  }
+  
+  return(alpha)
+}
+
+pvals <- summary_updated_model$coefficients[,4]
+fdr(pvals, 0.1, plotit = TRUE)
+```
+
+## As can be seen from the summary the discoveries which lie with a range of alpha being 0.05 - 0.1 are considered as true discoveries.
+## Thus there are 4 true discoveries which align to the attributes makesabb(0.015774),makechevrolet(0.011053), engine_typeohcv(0.012268) and engine_typel(0.027673).
+## The FDR is 0.07127306 which is less that an fdr of 0.1 implying that there are no false discoveries present.
+## Thus all the variables that are chosen for the model are actually significant and are not falsely identified.
+
+
