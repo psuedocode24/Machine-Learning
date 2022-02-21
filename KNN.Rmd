@@ -1,0 +1,139 @@
+---
+title: "BAX 452 HW 5"
+output: html_document
+---
+
+## 1. Prepare and explore the data:
+```{r}
+library(Hmisc)
+library(class)
+library(glmnet)
+data <- read.csv("winequality-red.csv")
+```
+
+
+## (a) Make a new column (call it quality_group) that splits the wine into three categories (for low, medium, and high quality). Base this categorization on the pre-existing quality column (you can decide the numeric ranges to use for each group).
+```{r}
+summary(data$quality)
+data$quality_group <- ifelse(data$quality <= 4, "Low", ifelse(data$quality <= 6, "Medium", "High"))
+data$quality_group <- factor(data$quality_group, levels = c("Low", "Medium", "High"))
+summary(data$quality_group)
+```
+
+
+## (b) Explore the data. What are your observations?
+```{r}
+summary(data)
+rcorr(as.matrix(select_if(data, is.numeric)))
+## High correlation amongst variables, e.g.pH is negatively correlated with fixed acidity & citric acid, while citric acid is positively correlated with fixed acidity
+
+for (i in 1:12) {
+  hist(data[,i], main = names(data[i]))
+}
+## Density and pH seem to be normally distributed while other columns have a right skewed distribution
+
+plot(data$fixed.acidity, data$volatile.acidity, col = data$quality_group)
+plot(data$citric.acid, data$chlorides, col = data$quality_group)
+plot(data$free.sulfur.dioxide, data$total.sulfur.dioxide, col = data$quality_group)
+plot(data$density, data$pH, col = data$quality_group)
+plot(data$sulphates, data$alcohol, col = data$quality_group)
+## The quality groups are generally overlapping despite correlation between quality and these factors
+```
+
+
+## (c) Split the data into 80% training and 20% testing.
+```{r}
+smp_size <- floor(0.8 * nrow(data))
+set.seed(100)
+train_ind <- sample(seq_len(nrow(data)), size = smp_size)
+
+train <- data[train_ind, ]
+test <- data[-train_ind,]
+```
+
+
+## 2. K-nearest neighbors classification:
+## (a) Use k-nearest neighbors on the dataset. Because k-nearest neighbors is supervised, use your new quality_group column as the outcome for the classification. 
+```{r}
+xtrain <- scale(train[,1:12])
+apply(xtrain,2,sd)
+apply(xtrain,2,mean)
+xtest <- scale(test[,1:12])
+apply(xtest,2,sd)
+apply(xtest,2,mean)
+
+quality_group <- data$quality_group
+nearest5 <- knn(train = xtrain, test = xtest, cl=quality_group[train_ind], k=5)
+pred <- data.frame(outcome = quality_group[-train_ind], knn_outcome = nearest5)
+pred
+```
+
+## (b) Describe the model. How accurate is your knn classifier?
+```{r}
+wrong <- sum(pred$outcome != pred$knn_outcome)/nrow(pred)
+sprintf("%.2f of the knn classification outcome is inaccurate when using KNN (k = 5)", wrong*100)
+```
+
+
+## 3. Multinomial logistic regression classification:
+## (a) Now, use multinomial logistic regression to classify the same dataset (again with quality_group as your outcome). As before, use your training data to fit the model and testing data to test it. 
+```{r}
+## Cross Validation -> adopt minimum lambda
+train_y <- train[, 13]
+train_x <- sparse.model.matrix(quality_group~., data=train)[,-1]
+model <- cv.glmnet(train_x, train_y, type.measure = "mse", alpha = 1, family = "multinomial")
+model_best <- glmnet(train_x, train_y, alpha = 1, family = "multinomial", lambda = model$lambda.min)
+test_x <- sparse.model.matrix(quality_group~., data=test)[,-1]
+test_y <- test[, 13]
+test_prob <- predict(model_best, test_x, type = "response")
+## Assuming maximum probability rule
+test_outcome <- colnames(test_prob)[apply(test_prob,1,which.max)]
+result <- data.frame(outcome = test_y, mlr_outcome = test_outcome)
+result
+```
+
+```{r}
+## Alternative method
+library(nnet)
+model <- multinom(quality_group ~., data = data[train_ind,])
+summary(model)
+exp(coef(model))
+
+test_pred <- predict(model, newdata = data[-train_ind,], "class")
+test_result <- data.frame(test_outcome = quality_group[-train_ind], test_pred = test_pred)
+```
+
+
+## (b) Describe the model. How accurate is your multinomial logistic regression classifier?
+```{r}
+## OOS accuracy
+res1 <- sum(result$outcome == result$mlr_outcome) / nrow(result)
+res2 <- sum(test_result$test_outcome == test_result$test_pred) / nrow(test_result)
+
+sprintf("%.2f percent of the multinomial logistic regression classification outcome is accurate (both methods)", res1*100)
+```
+
+
+## 4. K-means clustering:
+## (a) Finally, perform k-means clustering on the dataset with k=3. Because k-means is unsupervised, ignore both the quality_group and quality columns. Use the training dataset.
+```{r}
+xtrain2 <- scale(train[,1:11])
+kmeans <- kmeans(xtrain2,3,nstart=10)
+kmeans$centers 
+tapply(train$quality_group,kmeans$cluster,table)
+```
+
+## (b) Describe your clusters. How do the results compare to the supervised algorithms?
+The clusters dont seem to closely follow the quality groupings. As such, the clustering accuracy in this case will be significantly lower than the classification results from the supervised algorithms.
+
+
+## 5. Theory:
+## (a) Describe the three approaches (knn, multinomial logistic regression, and k-means) and compare/contrast them with each other.
+kNN (k-Nearest Neighbors) is a non-parametric classification method where we classify a certain data point based on the majority of its k-closest neighbor. In kNN we assume that similar things exist in close proximity. As simple as kNN is, it is unstable as the classification changes with the number k. Moreover, it only provides the classification results (and rough probability), hence we cannot readily assess misclassification risk.
+
+While kNN is a non-parametric model, Multinomial Logistic regression is a parametric model. Multinomial Logistic Regression can be seen as an extension of binomial logistic regression, where the response is one of the k categories (i.e. rather than 0 or 1). The log odds of the outcomes are modeled as a linear combination of the predictor variables (x'β). The response variable $y_i$ in this case can be written as a vector (e.g. [0,1,0,...,0]) where $y_{ik}$ = 1 if response i is class k. We train the model on our training set, and evaluate the classification accuracy with our testing set.
+
+Contrary to the first two supervised classification approaches, clustering is unsupervised, hence we ignored the quality & quality group columns (i.e. known/labelled outcomes) above. Clustering also follows the assumption that similar data points are aggregated together. In k-means, we assume that the observations are drawn from k distributions, where each distribution is normal, and we identify k number of centroids. k-means then tries to allocate clusters that minimizes sum-of-squares (total sum of squares of each element's distance to respective cluster mean). The expected x is the sum of "probability of x being in cluster k multiplied by the average value of cluster k". The k-means algorithm is a trial-and-error algorithm since we start from a group of randomly selected centroids and iterate to optimize the positions of the centroids. There are a few selection methods for k, such as using information criterion or the elbow method. 
+
+## (b) Which approach would you recommend for this dataset and why?
+For this dataset, we would recommend using the multinomial logistic regression approach. Since we indeed have a known outcome (quality group), we can adopt supervised learning. In addition to being faster than kNN, MLR can also produce confidence levels about its prediction, while kNN only outputs labels. In this case, we believe that using the multinomial logistic regression will allow us to classify observations more accurately.
